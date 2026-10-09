@@ -58,6 +58,7 @@ h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mute);margin-bottom:18px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
 .k{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.04em}.v{font-size:20px;font-weight:600;margin-top:4px;word-break:break-all}
+.v.sm{font-size:16px;font-family:ui-monospace,monospace}
 .ok{color:var(--ok)}.bad{color:var(--bad)}
 canvas{width:100%;height:160px;display:block}
 button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
@@ -68,7 +69,7 @@ code{background:var(--line);padding:2px 6px;border-radius:5px}
 <div class="sub" id="conn">Connecting&hellip;</div>
 <div class="grid">
  <div class="card"><div class="k">IP address</div><div class="v" id="ip">-</div></div>
- <div class="card"><div class="k">MAC</div><div class="v" id="mac">-</div></div>
+ <div class="card"><div class="k">MAC</div><div class="v sm" id="mac">-</div></div>
  <div class="card"><div class="k">Link</div><div class="v" id="link">-</div></div>
  <div class="card"><div class="k">Uptime</div><div class="v" id="up">-</div></div>
  <div class="card"><div class="k">HTTP ping (last)</div><div class="v" id="rtt">-</div></div>
