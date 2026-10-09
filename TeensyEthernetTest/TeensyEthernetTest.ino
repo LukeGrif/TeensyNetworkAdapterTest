@@ -1,7 +1,7 @@
 // Teensy 4.1 Ethernet adapter test
 //
-// Brings up the Ethernet port (DHCP by default, optional static IP), prints
-// the address on Serial, answers ICMP ping, and serves a small dashboard web
+// Brings up the Ethernet port on a fixed (static) IP, so it works with the
+// cable plugged straight into a PC, no router needed. Prints the address on Serial, answers ICMP ping, and serves a small dashboard web
 // page at http://<ip>/ that measures round-trip latency from your browser.
 //
 // Library: QNEthernet (Arduino Library Manager: "QNEthernet" by Shawn Silverman)
@@ -14,16 +14,18 @@ using namespace qindesign::network;
 // Settings
 // ---------------------------------------------------------------------------
 
-// Set to true to use the static address below instead of DHCP.
-constexpr bool kUseStaticIP = false;
-const IPAddress kStaticIP{192, 168, 1, 177};
+// Teensy's fixed address. Set your PC's Ethernet port to a different address
+// on the same subnet, e.g. 192.168.2.10 with mask 255.255.255.0.
+const IPAddress kStaticIP{192, 168, 2, 70};
 const IPAddress kSubnetMask{255, 255, 255, 0};
-const IPAddress kGateway{192, 168, 1, 1};
-const IPAddress kDNS{192, 168, 1, 1};
+// With a direct PC cable the gateway/DNS aren't used; they just need to be on
+// the same subnet.
+const IPAddress kGateway{192, 168, 2, 1};
+const IPAddress kDNS{192, 168, 2, 1};
+const IPAddress kSuggestedPcIP{192, 168, 2, 10};
 
 constexpr char kHostname[] = "teensy-eth";  // also http://teensy-eth.local/
 constexpr uint16_t kHttpPort = 80;
-constexpr uint32_t kDhcpTimeoutMs = 15000;
 constexpr uint32_t kClientTimeoutMs = 2000;
 
 // ---------------------------------------------------------------------------
@@ -36,7 +38,6 @@ uint32_t linkUpCount = 0;
 uint32_t linkDownCount = 0;
 uint32_t httpRequests = 0;
 uint32_t lastLinkChangeMs = 0;
-bool addressPrinted = false;
 
 // ---------------------------------------------------------------------------
 // Web page (served at "/"). It polls /api/status and times each request, so
@@ -108,7 +109,7 @@ async function tick(){
   $('ip').textContent=j.ip;$('mac').textContent=j.mac;
   $('link').innerHTML=j.link?'<span class="ok">Up</span> '+j.speed+' Mbps '+(j.fullDuplex?'FD':'HD'):'<span class="bad">Down</span>';
   $('up').textContent=fmtUp(j.uptime);$('req').textContent=j.requests;
-  $('net').textContent=j.mask+' / '+j.gateway+' / '+j.dns+(j.dhcp?' (DHCP)':' (static)');
+  $('net').textContent=j.mask+' / '+j.gateway+' / '+j.dns+' (static)';
   document.querySelectorAll('.ipv').forEach(e=>e.textContent=j.ip);
   $('rtt').textContent=rtt.toFixed(1)+' ms';
  }catch(e){lost++;hist.push(null);$('conn').innerHTML='<span class="bad">&#9679; No response</span>';$('rtt').textContent='timeout'}
@@ -155,6 +156,8 @@ void printNetworkInfo() {
   Serial.printf("  Web page: http://%s/  (or http://%s.local/)\r\n",
                 ipToString(Ethernet.localIP()).c_str(), kHostname);
   Serial.printf("  Test:     ping %s\r\n", ipToString(Ethernet.localIP()).c_str());
+  Serial.printf("  Set your PC's Ethernet port to %s, mask %s\r\n",
+                ipToString(kSuggestedPcIP).c_str(), ipToString(kSubnetMask).c_str());
   Serial.println();
 }
 
@@ -167,8 +170,7 @@ String statusJson() {
   s += "\",\"gateway\":\"";  s += ipToString(Ethernet.gatewayIP());
   s += "\",\"dns\":\"";      s += ipToString(Ethernet.dnsServerIP());
   s += "\",\"mac\":\"";      s += macToString();
-  s += "\",\"dhcp\":";       s += kUseStaticIP ? "false" : "true";
-  s += ",\"link\":";         s += Ethernet.linkState() ? "true" : "false";
+  s += "\",\"link\":";         s += Ethernet.linkState() ? "true" : "false";
   LinkInfo li = Ethernet.linkInfo();
   s += ",\"speed\":";        s += li.speed;
   s += ",\"fullDuplex\":";   s += li.fullNotHalfDuplex ? "true" : "false";
@@ -273,15 +275,8 @@ void setup() {
 
   Ethernet.setHostname(kHostname);
 
-  bool started;
-  if (kUseStaticIP) {
-    Serial.println("Starting Ethernet with static IP...");
-    started = Ethernet.begin(kStaticIP, kSubnetMask, kGateway, kDNS);
-  } else {
-    Serial.println("Starting Ethernet with DHCP...");
-    started = Ethernet.begin();
-  }
-  if (!started) {
+  Serial.println("Starting Ethernet with static IP...");
+  if (!Ethernet.begin(kStaticIP, kSubnetMask, kGateway, kDNS)) {
     Serial.println("ERROR: Ethernet.begin() failed. Is this a Teensy 4.1 with the PHY chip?");
     while (true) {
       digitalToggle(LED_BUILTIN);  // fast blink = hardware failure
@@ -289,13 +284,7 @@ void setup() {
     }
   }
 
-  if (!kUseStaticIP) {
-    Serial.println("Waiting for DHCP address...");
-    if (!Ethernet.waitForLocalIP(kDhcpTimeoutMs)) {
-      Serial.println("No DHCP address yet - still trying in the background.");
-      Serial.println("Check the cable is plugged into a router/switch with DHCP.");
-    }
-  }
+  printNetworkInfo();
 
   if (MDNS.begin(kHostname)) {
     MDNS.addService("_http", "_tcp", kHttpPort);
@@ -305,17 +294,8 @@ void setup() {
 }
 
 void loop() {
-  // Print the address once we have one (DHCP may finish after setup()).
-  bool haveIP = static_cast<uint32_t>(Ethernet.localIP()) != 0;
-  if (haveIP && !addressPrinted) {
-    printNetworkInfo();
-    addressPrinted = true;
-  } else if (!haveIP) {
-    addressPrinted = false;
-  }
-
-  // LED: solid when link is up with an address, slow blink otherwise.
-  if (Ethernet.linkState() && haveIP) {
+  // LED: solid when the cable link is up, slow blink otherwise.
+  if (Ethernet.linkState()) {
     digitalWrite(LED_BUILTIN, HIGH);
   } else {
     digitalWrite(LED_BUILTIN, (millis() / 500) % 2);
